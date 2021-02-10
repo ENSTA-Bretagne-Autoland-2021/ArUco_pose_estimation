@@ -5,15 +5,36 @@ import matplotlib.pyplot as plt
 from scipy import signal
 
 
-def filter(X):
-    b, a = signal.butter(3, 0.05)
+def filter(X, n, f):
+    b, a = signal.butter(n, f)
     return signal.filtfilt(b, a, X)
+
+# def reject_outliers(time, data, m=2):
+#     idx = abs(data - np.mean(data)) < m * np.std(data)
+#     return time[idx], data[idx]
+
+# def reject_outliers(time, data, m=2):
+#     d = np.abs(data - np.median(data))
+#     mdev = np.median(d)
+#     s = d/mdev if mdev else 0.
+#     data_range = np.arange(len(data))
+#     idx_list = data_range[s<m]
+#     return time[idx_list], data[s<m]
+
+def reject_outliers(time, data, m=2):
+    y = signal.medfilt(data, kernel_size=9)
+    d = np.abs(data - y)
+    mdev = np.median(d)
+    s = d/mdev if mdev else 0.
+    data_range = np.arange(len(data))
+    idx_list = data_range[s<m]
+    return time[idx_list], data[s<m]
 
 X = []
 
 if __name__ == "__main__":
 
-    cap = cv2.VideoCapture('rotation.mp4')
+    cap = cv2.VideoCapture('zoom_in.mp4')
     fps = cap.get(cv2.CAP_PROP_FPS)
 
     with open('matrix_calibration.npy', 'rb') as f:
@@ -25,6 +46,7 @@ if __name__ == "__main__":
 
     aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250)  # Specify marker size as 4x4, 5x5, 6x6
     parameters = aruco.DetectorParameters_create()  # Marker detection parameters
+    parameters.cornerRefinementMethod = aruco.CORNER_REFINE_SUBPIX
 
     current_time = 0.0
 
@@ -38,7 +60,7 @@ if __name__ == "__main__":
             if np.all(ids is not None):  # If there are markers found by detector
                 for i in range(0, len(ids)):  # Iterate in markers
                     # Estimate pose of each marker and return the values rvec and tvec---different from camera coefficients
-                    rvec, tvec, markerPoints = aruco.estimatePoseSingleMarkers(corners[i], 0.02, matrix_coefficients,
+                    rvec, tvec, markerPoints = aruco.estimatePoseSingleMarkers(corners[i], 0.2, matrix_coefficients,
                                                                             distortion_coefficients)
                     (rvec - tvec).any()  # get rid of that nasty numpy value array error
                     aruco.drawDetectedMarkers(frame, corners, borderColor=[255, 200, 0])  # Draw A square around the markers
@@ -71,7 +93,7 @@ if __name__ == "__main__":
 
     # Position
     plt.figure()
-    x, y, z = filter(X[:, 4]), filter(X[:, 5]), filter(X[:, 6])
+    x, y, z = filter(X[:, 4], 3, 0.05), filter(X[:, 5], 3, 0.05), filter(X[:, 6], 3, 0.05)
     plt.plot(X[:, 0], x, color="red", label="X")
     plt.plot(X[:, 0], y, color="green", label="Y")
     plt.plot(X[:, 0], z, color="blue", label="Z")
@@ -83,10 +105,12 @@ if __name__ == "__main__":
 
     # Orientation
     plt.figure()
-    phi, theta, psi = filter(np.abs(X[:, 1])), filter(np.abs(X[:, 2]+np.pi/2)), filter(np.abs(X[:, 3]))
-    plt.plot(X[:, 0], phi, color="crimson", label=r"$\phi$")
-    plt.plot(X[:, 0], theta, color="teal", label=r"$\theta$")
-    plt.plot(X[:, 0], psi, color="purple", label=r"$\psi$")
+    t_phi, phi = reject_outliers(X[:, 0], X[:, 1], m=2)
+    t_theta, theta = reject_outliers(X[:, 0], X[:, 2], m=2)
+    t_psi, psi = reject_outliers(X[:, 0], X[:, 3], m=2)
+    plt.plot(t_phi, filter(phi, 3, 0.005), color="crimson", label=r"$\phi$")
+    plt.plot(t_theta, filter(theta, 3, 0.005), color="teal", label=r"$\theta$")
+    plt.plot(t_psi, filter(psi, 3, 0.005), color="purple", label=r"$\psi$")
     plt.title("Orientation du marqueur")
     plt.xlabel(r"Temps (en $s$)")
     plt.ylabel(r"Orientation (en $rad$)")
